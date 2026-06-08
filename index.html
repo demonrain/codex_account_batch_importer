@@ -26,6 +26,10 @@
           <strong id="statImportable">0</strong>
         </div>
         <div class="mini-stat">
+          <span>正常</span>
+          <strong id="statHealthy">0</strong>
+        </div>
+        <div class="mini-stat">
           <span>已选择</span>
           <strong id="statSelected">0</strong>
         </div>
@@ -129,13 +133,18 @@
 
         <section class="card table-card">
           <div class="section-title section-title--table">
-            <div>
-              <p class="eyebrow">Step 3</p>
-              <h2>预览并导入</h2>
-            </div>
-            <button id="importBtn" class="button button--danger" type="button" disabled>
-              导入选中账号
+          <div>
+            <p class="eyebrow">Step 3</p>
+            <h2>预览并导入</h2>
+          </div>
+          <div class="table-actions">
+            <button id="healthCheckBtn" class="button button--secondary" type="button" disabled>
+              测活选中账号
             </button>
+            <button id="importBtn" class="button button--danger" type="button" disabled>
+              导入正常账号
+            </button>
+          </div>
           </div>
 
           <div class="table-wrap">
@@ -145,14 +154,16 @@
                   <th></th>
                   <th>文件</th>
                   <th>账号信息</th>
+                  <th>身份</th>
                   <th>Token</th>
                   <th>过期时间</th>
                   <th>状态</th>
+                  <th>测活</th>
                 </tr>
               </thead>
               <tbody id="fileTableBody">
                 <tr>
-                  <td colspan="6" class="empty">请选择 JSON 文件</td>
+                  <td colspan="8" class="empty">请选择 JSON 文件</td>
                 </tr>
               </tbody>
             </table>

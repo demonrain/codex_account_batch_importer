@@ -11,6 +11,9 @@
 - 支持不兼容目录选择的浏览器手动选择多个 JSON 文件。
 - 本地解析 JSON，预览文件名、邮箱、账号 ID、Token 状态和过期时间。
 - 自动过滤缺少 `access_token` 的文件，避免误导入。
+- 支持对待导入账号做测活，统计当前正常账号数量。
+- 支持只导入测活正常的账号。
+- 账号去重按真实身份字段判断，不按显示名称 `name` 判断。
 - 支持搜索、全选可导入、清空选择。
 - 支持配置并发数、账号优先级、分组 ID、是否更新已存在账号、是否跳过默认分组、过期是否自动暂停。
 - 通过本地 Python 服务转发请求，绕过浏览器 CORS 限制。
@@ -130,8 +133,56 @@ Admin Token 不在本工具的配置文件里配置，而是在页面的 `Admin 
 6. 点击 `选择 accounts 目录`，选择你的账号 JSON 文件目录。
 7. 如果浏览器不支持目录选择，点击 `选择多个 JSON 文件`。
 8. 在表格中检查文件状态。
-9. 点击 `导入选中账号`。
-10. 在页面下方查看导入结果。
+9. 点击 `测活选中账号`，等待正常/异常结果。
+10. 点击 `导入正常账号`，工具只会提交测活正常的账号。
+11. 在页面下方查看导入结果。
+
+## 测活说明
+
+测活发生在本机 `server.py` 提供的 `/health-check` 接口中。页面会把选中账号的 `access_token` 发送给本机服务，本机服务再请求 OpenAI/Codex 上游做轻量验证。
+
+测活通过后，表格中的 `测活` 列会显示 `正常`。导入按钮只会导入这些正常账号。
+
+测活失败常见原因：
+
+- `access_token` 已过期。
+- 账号本身不可用。
+- 当前机器无法访问上游。
+- 上游返回限流、风控或鉴权错误。
+
+测活请求默认访问：
+
+```text
+https://chatgpt.com/backend-api/codex/responses
+```
+
+如果你的网络或测试环境需要改上游地址，可以在启动前设置环境变量：
+
+```powershell
+$env:CODEX_HEALTH_URL="https://chatgpt.com/backend-api/codex/responses"
+python server.py
+```
+
+也可以指定测活模型：
+
+```powershell
+$env:CODEX_TEST_MODEL="gpt-5.4"
+python server.py
+```
+
+## 去重说明
+
+本工具不会因为账号显示名称 `name` 相同就判定重复。
+
+重复判断顺序为：
+
+- `chatgpt_account_id`
+- `chatgpt_user_id`
+- `user_id`
+- `email`
+- `access_token` 指纹
+
+因此多个账号都叫同一个 `name`，只要真实身份字段不同，就会被视为不同账号。
 
 ## JSON 文件要求
 
@@ -168,7 +219,7 @@ Admin Token 不在本工具的配置文件里配置，而是在页面的 `Admin 
 
 ## 实际调用接口
 
-页面通过本地代理调用 Sub2API：
+导入时页面通过本地代理调用 Sub2API：
 
 ```text
 POST http://127.0.0.1:5177/proxy/admin/accounts/import/codex-session
@@ -225,6 +276,7 @@ x-api-key: <Admin Token>
 
 - 托管 `index.html`、`styles.css`、`app.js`。
 - 接收 `/proxy/...` 请求，并转发到你填写的 Sub2API API 地址。
+- 接收 `/health-check` 请求，并对待导入账号做本机测活。
 
 代理只监听本机：
 
@@ -277,6 +329,14 @@ taskkill /PID <PID> /F
 请使用 Chrome 或 Edge，并通过 `http://127.0.0.1:5177` 打开页面。
 
 如果浏览器仍不支持目录选择，请点击 `选择多个 JSON 文件`，手动选中账号 JSON 目录里的文件。
+
+### 测活正常数量为 0 怎么办？
+
+检查三项：
+
+- 账号 JSON 是否真的包含有效 `access_token`。
+- 当前机器是否能访问 OpenAI/Codex 上游。
+- 账号是否已经过期、被风控或被上游拒绝。
 
 ### 提示 Token 无效怎么办？
 
