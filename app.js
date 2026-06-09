@@ -96,6 +96,7 @@ function shortTokenFingerprint(token) {
 }
 
 function buildIdentityKey(file) {
+  if (file.accountId && file.userId) return `account:${file.accountId}|user:${file.userId}`
   if (file.accountId) return `account:${file.accountId}`
   if (file.userId) return `user:${file.userId}`
   if (file.email) return `email:${file.email.toLowerCase()}`

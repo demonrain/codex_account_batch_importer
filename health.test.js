@@ -33,6 +33,30 @@ test('same account id is treated as duplicate even when file names differ', () =
   assert.equal(duplicates.get('account:acc-1'), 'one.json')
 })
 
+test('same account id with different user ids is not treated as duplicate', () => {
+  const first = normalizeCodexFile({
+    email: 'one@example.com',
+    chatgpt_account_id: 'acc-shared',
+    chatgpt_user_id: 'user-1',
+    access_token: 'token-1',
+  })
+  const second = normalizeCodexFile({
+    email: 'two@example.com',
+    chatgpt_account_id: 'acc-shared',
+    chatgpt_user_id: 'user-2',
+    access_token: 'token-2',
+  })
+
+  const duplicates = findDuplicateIdentity([
+    { fileName: 'one.json', identityKey: first.identityKey },
+    { fileName: 'two.json', identityKey: second.identityKey },
+  ])
+
+  assert.equal(first.identityKey, 'account:acc-shared|user:user-1')
+  assert.equal(second.identityKey, 'account:acc-shared|user:user-2')
+  assert.equal(duplicates.size, 0)
+})
+
 test('selectedHealthyFiles keeps only selected live importable accounts by key', () => {
   const files = [
     { key: 'ok', fileName: 'ok.json', hasAccessToken: true, parseError: '', health: { status: 'ok' } },
