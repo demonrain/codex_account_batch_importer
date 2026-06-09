@@ -2,24 +2,19 @@ const assert = require('node:assert/strict')
 const test = require('node:test')
 
 const {
+  PLATFORM_PRESETS,
   buildImportPayload,
+  buildPlatformRequest,
   findDuplicateIdentity,
   normalizeCodexFile,
+  parsePastedAccounts,
   selectedHealthyFiles,
 } = require('./health')
 
 test('same display name does not make different accounts duplicates', () => {
   const files = [
-    {
-      fileName: 'a.json',
-      name: 'account',
-      identityKey: 'account:acc-a',
-    },
-    {
-      fileName: 'b.json',
-      name: 'account',
-      identityKey: 'account:acc-b',
-    },
+    { fileName: 'a.json', name: 'account', identityKey: 'account:acc-a' },
+    { fileName: 'b.json', name: 'account', identityKey: 'account:acc-b' },
   ]
 
   const duplicates = findDuplicateIdentity(files)
@@ -38,26 +33,92 @@ test('same account id is treated as duplicate even when file names differ', () =
   assert.equal(duplicates.get('account:acc-1'), 'one.json')
 })
 
-test('selectedHealthyFiles keeps only selected live importable accounts', () => {
+test('selectedHealthyFiles keeps only selected live importable accounts by key', () => {
   const files = [
-    { fileName: 'ok.json', content: '{}', hasAccessToken: true, parseError: '', health: { status: 'ok' } },
-    { fileName: 'bad.json', content: '{}', hasAccessToken: true, parseError: '', health: { status: 'bad' } },
-    { fileName: 'unknown.json', content: '{}', hasAccessToken: true, parseError: '', health: { status: 'unknown' } },
-    { fileName: 'parse-error.json', content: '{}', hasAccessToken: false, parseError: '缺少 access token', health: { status: 'ok' } },
+    { key: 'ok', fileName: 'ok.json', hasAccessToken: true, parseError: '', health: { status: 'ok' } },
+    { key: 'bad', fileName: 'bad.json', hasAccessToken: true, parseError: '', health: { status: 'bad' } },
+    { key: 'unknown', fileName: 'unknown.json', hasAccessToken: true, parseError: '', health: { status: 'unknown' } },
+    { key: 'parse-error', fileName: 'parse-error.json', hasAccessToken: false, parseError: 'missing access token', health: { status: 'ok' } },
   ]
 
-  const selected = selectedHealthyFiles(files, new Set(files.map((file) => file.fileName)))
+  const selected = selectedHealthyFiles(files, new Set(['ok', 'bad', 'unknown', 'parse-error']))
 
-  assert.deepEqual(selected.map((file) => file.fileName), ['ok.json'])
+  assert.deepEqual(selected.map((file) => file.key), ['ok'])
 })
 
-test('buildImportPayload only includes provided healthy files', () => {
+test('normalizeCodexFile derives identity from account fields before name', () => {
+  const normalized = normalizeCodexFile({
+    name: 'same-name',
+    chatgpt_account_id: 'acc-real',
+    access_token: 'not-a-jwt-token',
+  })
+
+  assert.equal(normalized.identityKey, 'account:acc-real')
+  assert.equal(normalized.parseError, '')
+})
+
+test('parsePastedAccounts supports markdown fenced single object', () => {
+  const parsed = parsePastedAccounts('```json\n{"email":"one@example.com","access_token":"token-1"}\n```')
+
+  assert.equal(parsed.length, 1)
+  assert.equal(parsed[0].normalized.email, 'one@example.com')
+  assert.equal(parsed[0].normalized.hasAccessToken, true)
+})
+
+test('parsePastedAccounts supports ndjson and refresh token lines', () => {
+  const input = [
+    '{"email":"a@example.com","access_token":"token-a"}',
+    '{"email":"b@example.com","access_token":"token-b"}',
+    '1//refresh-only-token',
+  ].join('\n')
+
+  const parsed = parsePastedAccounts(input)
+
+  assert.equal(parsed.length, 3)
+  assert.equal(parsed[2].raw.refresh_token, '1//refresh-only-token')
+})
+
+test('parsePastedAccounts expands sub2api exported payload', () => {
+  const payload = JSON.stringify({
+    type: 'sub2api-data',
+    version: 1,
+    accounts: [
+      {
+        name: 'alpha',
+        credentials: {
+          email: 'alpha@example.com',
+          access_token: 'token-alpha',
+          refresh_token: 'rt-alpha',
+          chatgpt_account_id: 'acc-alpha',
+        },
+      },
+      {
+        name: 'beta',
+        credentials: {
+          email: 'beta@example.com',
+          access_token: 'token-beta',
+          chatgpt_user_id: 'user-beta',
+        },
+      },
+    ],
+  })
+
+  const parsed = parsePastedAccounts(payload)
+
+  assert.equal(parsed.length, 2)
+  assert.equal(parsed[0].displayName, 'alpha')
+  assert.equal(parsed[0].normalized.accountId, 'acc-alpha')
+  assert.equal(parsed[1].normalized.userId, 'user-beta')
+})
+
+test('buildImportPayload creates Sub2API request body', () => {
   const payload = buildImportPayload(
     [
       { content: '{"access_token":"one"}' },
       { content: '{"access_token":"two"}' },
     ],
     {
+      platform: 'sub2api',
       groupIds: [1, 2],
       concurrency: 4,
       priority: 60,
@@ -73,13 +134,51 @@ test('buildImportPayload only includes provided healthy files', () => {
   assert.equal(payload.confirm_mixed_channel_risk, true)
 })
 
-test('normalizeCodexFile derives identity from account fields before name', () => {
-  const normalized = normalizeCodexFile({
-    name: 'same-name',
-    chatgpt_account_id: 'acc-real',
-    access_token: 'not-a-jwt-token',
-  })
+test('buildImportPayload creates CPA portable files', () => {
+  const payload = buildImportPayload(
+    [
+      {
+        email: 'one@example.com',
+        accessToken: 'token-one',
+        refreshToken: 'rt-one',
+        accountId: 'acc-one',
+        expiresAt: '2026-06-10T00:00:00.000Z',
+      },
+    ],
+    { platform: 'cpa' }
+  )
 
-  assert.equal(normalized.identityKey, 'account:acc-real')
-  assert.equal(normalized.parseError, '')
+  assert.equal(Array.isArray(payload), true)
+  assert.equal(payload[0].fileName.endsWith('.json'), true)
+  const parsed = JSON.parse(payload[0].content)
+  assert.equal(parsed.type, 'codex')
+  assert.equal(parsed.account_id, 'acc-one')
+  assert.equal(parsed.refresh_token, 'rt-one')
+})
+
+test('buildPlatformRequest returns export-only content for cockpit', () => {
+  const request = buildPlatformRequest(
+    {
+      platform: 'cockpit',
+    },
+    [
+      {
+        displayName: 'alpha',
+        email: 'alpha@example.com',
+        accessToken: 'token-alpha',
+        refreshToken: 'rt-alpha',
+        accountId: 'acc-alpha',
+      },
+    ]
+  )
+
+  assert.equal(request.mode, 'export-only')
+  assert.equal(typeof request.exportContent, 'string')
+  const exported = JSON.parse(request.exportContent)
+  assert.equal(exported.type, 'sub2api-data')
+  assert.equal(exported.accounts.length, 1)
+})
+
+test('platform presets include sub2api cpa and cockpit', () => {
+  assert.deepEqual(Object.keys(PLATFORM_PRESETS).sort(), ['cockpit', 'cpa', 'sub2api'])
 })

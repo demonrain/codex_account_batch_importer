@@ -1,6 +1,8 @@
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from urllib import error, request
 import base64
+import cgi
+import io
 import json
 import os
 import queue
@@ -29,35 +31,58 @@ class Handler(SimpleHTTPRequestHandler):
         if self.path == "/health-check":
             self.handle_health_check()
             return
+        if self.path.startswith("/proxy-upload/"):
+            self.handle_proxy_upload()
+            return
         if self.path.startswith("/proxy/"):
-            self.handle_proxy()
+            self.handle_proxy_json()
             return
         return super().do_POST()
 
-    def handle_proxy(self):
-        target_base = self.headers.get("x-sub2api-target", "").strip().rstrip("/")
+    def handle_proxy_json(self):
+        target_base = self.read_target_base()
         if not target_base:
-            self.write_json(400, {"message": "missing x-sub2api-target"})
             return
 
-        if not target_base.endswith("/api/v1"):
-            target_base = target_base + "/api/v1"
-
-        target_path = self.path[len("/proxy"):]
+        target_path = self.path[len("/proxy") :]
         target_url = target_base + target_path
         body = self.read_body()
+        headers = self.collect_auth_headers({"Content-Type": self.headers.get("Content-Type", "application/json")})
 
-        headers = {
-            "Content-Type": "application/json",
-        }
+        req = request.Request(target_url, data=body, headers=headers, method="POST")
+        self.forward_request(req)
+
+    def handle_proxy_upload(self):
+        target_base = self.read_target_base()
+        if not target_base:
+            return
+
+        body, content_type = self.rebuild_multipart_body()
+        target_path = self.path[len("/proxy-upload") :]
+        target_url = target_base + target_path
+        headers = self.collect_auth_headers({"Content-Type": content_type})
+
+        req = request.Request(target_url, data=body, headers=headers, method="POST")
+        self.forward_request(req)
+
+    def read_target_base(self):
+        target_base = self.headers.get("x-import-target", "").strip().rstrip("/")
+        if not target_base:
+            self.write_json(400, {"message": "missing x-import-target"})
+            return None
+        return target_base
+
+    def collect_auth_headers(self, base_headers):
+        headers = dict(base_headers)
         auth = self.headers.get("Authorization")
         api_key = self.headers.get("x-api-key")
         if auth:
             headers["Authorization"] = auth
         if api_key:
             headers["x-api-key"] = api_key
+        return headers
 
-        req = request.Request(target_url, data=body, headers=headers, method="POST")
+    def forward_request(self, req):
         try:
             with request.urlopen(req, timeout=120) as resp:
                 payload = resp.read()
@@ -75,6 +100,43 @@ class Handler(SimpleHTTPRequestHandler):
             self.wfile.write(payload)
         except Exception as exc:
             self.write_json(502, {"message": str(exc)})
+
+    def rebuild_multipart_body(self):
+        content_type = self.headers.get("Content-Type", "")
+        if "multipart/form-data" not in content_type:
+            raise ValueError("multipart/form-data required")
+
+        environ = {
+            "REQUEST_METHOD": "POST",
+            "CONTENT_TYPE": content_type,
+            "CONTENT_LENGTH": str(int(self.headers.get("Content-Length", "0") or "0")),
+        }
+        form = cgi.FieldStorage(
+            fp=self.rfile,
+            headers=self.headers,
+            environ=environ,
+            keep_blank_values=True,
+        )
+
+        boundary = f"----codex-proxy-{int(time.time() * 1000)}"
+        buffer = io.BytesIO()
+
+        fields = form.list or []
+        for field in fields:
+            if not getattr(field, "filename", None):
+                continue
+            filename = os.path.basename(field.filename)
+            payload = field.file.read()
+            buffer.write(f"--{boundary}\r\n".encode("utf-8"))
+            buffer.write(
+                f'Content-Disposition: form-data; name="{field.name}"; filename="{filename}"\r\n'.encode("utf-8")
+            )
+            buffer.write(b"Content-Type: application/json\r\n\r\n")
+            buffer.write(payload)
+            buffer.write(b"\r\n")
+
+        buffer.write(f"--{boundary}--\r\n".encode("utf-8"))
+        return buffer.getvalue(), f"multipart/form-data; boundary={boundary}"
 
     def handle_health_check(self):
         try:
@@ -114,7 +176,7 @@ class Handler(SimpleHTTPRequestHandler):
     def send_cors_headers(self):
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization, x-api-key, x-sub2api-target")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization, x-api-key, x-import-target")
 
     def write_json(self, status, payload):
         data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -163,7 +225,7 @@ def check_codex_account(account):
     start = time.time()
 
     if not access_token:
-        return health_item(key, file_name, "bad", "缺少 access token", start)
+        return health_item(key, file_name, "bad", "missing access token", start)
 
     exp_error = access_token_expiry_error(access_token)
     if exp_error:
@@ -200,12 +262,11 @@ def check_codex_account(account):
     try:
         with request.urlopen(req, timeout=45) as resp:
             if resp.status != 200:
-                raw = resp.read(4096)
                 return health_item(key, file_name, "bad", f"HTTP {resp.status}", start)
             success, message = read_codex_stream_result(resp)
             if success:
                 return health_item(key, file_name, "ok", "测活通过", start)
-            return health_item(key, file_name, "bad", message or "响应中未检测到完成事件", start)
+            return health_item(key, file_name, "bad", message or "上游未返回完成事件", start)
     except error.HTTPError as exc:
         detail = exc.read(4096).decode("utf-8", errors="replace")
         message = extract_error_message(detail) or f"HTTP {exc.code}"
@@ -234,7 +295,7 @@ def access_token_expiry_error(token):
         return ""
     exp = payload.get("exp")
     if isinstance(exp, (int, float)) and int(time.time()) > int(exp) + 120:
-        return "access token 已过期"
+        return "access token expired"
     return ""
 
 
@@ -248,10 +309,10 @@ def read_codex_stream_result(resp):
     while True:
         line = resp.readline(64 * 1024)
         if not line:
-            return False, "响应结束但未检测到完成事件"
+            return False, "response ended before completion"
         bytes_seen += len(line)
         if bytes_seen > 2 * 1024 * 1024:
-            return False, "响应过大，未检测到完成事件"
+            return False, "response too large before completion"
         text = line.decode("utf-8", errors="replace").strip()
         if not text:
             continue
@@ -267,7 +328,7 @@ def read_codex_stream_result(resp):
         if event_type in ("response.completed", "response.done"):
             return True, ""
         if event_type in ("response.failed", "error"):
-            return False, extract_stream_error(event) or "上游返回错误"
+            return False, extract_stream_error(event) or "upstream returned error"
 
 
 def extract_stream_error(event):
@@ -305,5 +366,5 @@ def extract_error_message(text):
 
 if __name__ == "__main__":
     server = ThreadingHTTPServer(("127.0.0.1", 5177), Handler)
-    print("Sub2API account tool: http://127.0.0.1:5177")
+    print("Account batch importer: http://127.0.0.1:5177")
     server.serve_forever()

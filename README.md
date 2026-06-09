@@ -1,100 +1,115 @@
-# Sub2API 账号批量管理工具
+# Codex Account Batch Importer
 
-一个用于批量导入和管理 Sub2API 账号的本地可视化工具。它面向最简使用场景：打开网页、选择本机账号 JSON 文件、填写 Sub2API API 地址和 Admin Token，然后调用 Sub2API 管理接口完成批量导入。
+一个本地可视化账号管理工具，用来批量读取、测活、去重并导入 Codex/OpenAI 账号数据。
 
-本项目不包含数据库、不启动 Sub2API 服务，也不保存 Admin Token。数据库、账号存储、任务执行都由你已有的 Sub2API 服务负责。
+它的设计目标是最简用法：
 
-## 功能特性
+- 不依赖数据库
+- 不启动或托管目标平台
+- 不保存 Admin Token
+- 直接通过本地页面完成批量操作
 
-- 可视化选择本机账号 JSON 目录中的文件。
-- 支持 Chrome / Edge 直接选择目录。
-- 支持不兼容目录选择的浏览器手动选择多个 JSON 文件。
-- 本地解析 JSON，预览文件名、邮箱、账号 ID、Token 状态和过期时间。
-- 自动过滤缺少 `access_token` 的文件，避免误导入。
-- 支持对待导入账号做测活，统计当前正常账号数量。
-- 支持只导入测活正常的账号。
-- 账号去重按真实身份字段判断，不按显示名称 `name` 判断。
-- 支持搜索、全选可导入、清空选择。
-- 支持配置并发数、账号优先级、分组 ID、是否更新已存在账号、是否跳过默认分组、过期是否自动暂停。
-- 通过本地 Python 服务转发请求，绕过浏览器 CORS 限制。
-- Admin Token 只保存在当前输入框中，不写入 localStorage。
+当前支持三种目标平台：
 
-## 目录结构
+- `Sub2API`
+- `CPA`
+- `Cockpit`
 
-```text
-<project-folder>
-├── app.js       # 页面交互、JSON 解析、批量导入请求
-├── index.html   # 可视化操作页面
-├── README.md    # 项目说明和部署使用文档
-├── server.py    # 本地静态服务和 Sub2API 请求转发代理
-└── styles.css   # 页面样式
-```
+其中：
 
-## 运行环境
+- `Sub2API` 走真实导入接口
+- `CPA` 走真实管理接口上传 auth 文件
+- `Cockpit` 当前走兼容 JSON 导出，不做远程直传
 
-- Windows 10 / Windows 11。
-- Python 3.8 或更高版本。
-- Chrome 或 Edge 浏览器。
-- 一个已经部署并可访问的 Sub2API 服务。
-- Sub2API 的 Admin Token。
-- 待导入账号 JSON 文件目录。
+## 功能概览
 
-检查 Python：
+- 可视化页面，直接在浏览器操作
+- 支持读取本地 JSON 目录
+- 支持手动选择多个 JSON 文件
+- 支持从剪切板粘贴 JSON、session、token 文本
+- 自动纠正常见账号格式并标准化字段
+- 先测活，再导入正常账号
+- 去重按真实身份字段判断，不按 `name` 判断
+- 可搜索、全选、取消选择
+- 可按平台切换导入方式
+- 本地代理转发请求，绕过浏览器 CORS 限制
+- Admin Token 只存在当前页面输入框，不写入本地存储
 
-```powershell
-python --version
-```
+## 页面流程
 
-如果命令不可用，可以尝试：
+页面按三个步骤工作：
 
-```powershell
-py --version
-```
+1. 连接目标平台
+2. 读取账号数据
+3. 测活、去重与导入
 
-## 快速启动
+推荐工作流固定为：
 
-在 PowerShell 中执行：
+1. 选择目标平台
+2. 填写 API 地址和 Admin Token
+3. 读取本地账号 JSON，或者直接粘贴账号内容
+4. 检查解析结果和去重状态
+5. 点击 `测活选中账号`
+6. 确认正常账号数量
+7. 点击导入，只导入测活正常的账号
+
+## 快速开始
+
+### 运行要求
+
+- Python `3.8+`
+- 现代浏览器，推荐 `Chrome` 或 `Edge`
+
+运行页面本身不需要 Node.js。
+
+Node.js 只用于本地测试 `health.js`。
+
+### 启动服务
+
+在项目目录执行：
 
 ```powershell
 cd <project-folder>
 python server.py
 ```
 
-如果你的系统使用 `py` 启动 Python：
+如果你的环境用 `py` 启动 Python：
 
 ```powershell
 cd <project-folder>
 py server.py
 ```
 
-看到下面输出表示本地页面服务已经启动：
+看到下面这行输出，说明本地服务已启动：
 
 ```text
-Sub2API account tool: http://127.0.0.1:5177
+Account batch importer: http://127.0.0.1:5177
 ```
 
-然后在浏览器访问：
+### 访问页面
+
+浏览器打开：
 
 ```text
 http://127.0.0.1:5177
 ```
 
-## 页面配置
+## 最简用法
 
-页面只需要两个核心配置：
+### Sub2API
+
+只需要两项核心配置：
 
 - `API 接口地址`
 - `Admin Token`
 
-### API 接口地址
-
-填写你的 Sub2API API 地址，例如：
+建议填写：
 
 ```text
 http://127.0.0.1:8080/api/v1
 ```
 
-如果你填写的是服务根地址：
+如果你填的是服务根地址，例如：
 
 ```text
 http://127.0.0.1:8080
@@ -106,149 +121,226 @@ http://127.0.0.1:8080
 http://127.0.0.1:8080/api/v1
 ```
 
-如果 Sub2API 部署在其他机器上，填写那台机器的地址，例如：
+然后：
+
+1. 读取账号数据
+2. 测活
+3. 导入正常账号
+
+### CPA
+
+只需要：
+
+- `API 接口地址`
+- `Admin Token`
+
+默认接口示例：
 
 ```text
-http://192.168.0.129:8080/api/v1
+http://127.0.0.1:8082
 ```
 
-### Admin Token
-
-Admin Token 不在本工具的配置文件里配置，而是在页面的 `Admin Token` 输入框里填写。
-
-这个 Token 来自你已有的 Sub2API 服务，一般有两种方式：
-
-- 后台登录后拿到的管理员 JWT，页面里的 `Token 发送方式` 选择 `Authorization: Bearer`。
-- 后台生成的 Admin API Key，页面里的 `Token 发送方式` 选择 `x-api-key`。
-
-本工具不会保存 Admin Token。点击 `保存配置` 时，只保存 API 地址、发送方式、并发数、优先级等非敏感配置。
-
-## 导入账号
-
-1. 启动本地服务并打开 `http://127.0.0.1:5177`。
-2. 填写 `API 接口地址`。
-3. 填写 `Admin Token`。
-4. 选择正确的 `Token 发送方式`。
-5. 根据需要设置 `账号并发`、`账号优先级`、`分组 ID` 等选项。
-6. 点击 `选择 accounts 目录`，选择你的账号 JSON 文件目录。
-7. 如果浏览器不支持目录选择，点击 `选择多个 JSON 文件`。
-8. 在表格中检查文件状态。
-9. 点击 `测活选中账号`，等待正常/异常结果。
-10. 点击 `导入正常账号`，工具只会提交测活正常的账号。
-11. 在页面下方查看导入结果。
-
-## 测活说明
-
-测活发生在本机 `server.py` 提供的 `/health-check` 接口中。页面会把选中账号的 `access_token` 发送给本机服务，本机服务再请求 OpenAI/Codex 上游做轻量验证。
-
-测活通过后，表格中的 `测活` 列会显示 `正常`。导入按钮只会导入这些正常账号。
-
-测活失败常见原因：
-
-- `access_token` 已过期。
-- 账号本身不可用。
-- 当前机器无法访问上游。
-- 上游返回限流、风控或鉴权错误。
-
-测活请求默认访问：
+默认导入路径：
 
 ```text
-https://chatgpt.com/backend-api/codex/responses
+/v0/management/auth-files
 ```
 
-如果你的网络或测试环境需要改上游地址，可以在启动前设置环境变量：
+CPA 模式默认使用 `Authorization: Bearer`。
 
-```powershell
-$env:CODEX_HEALTH_URL="https://chatgpt.com/backend-api/codex/responses"
-python server.py
+### Cockpit
+
+Cockpit 当前不要求远程 API。
+
+你只需要：
+
+1. 读取账号数据
+2. 测活
+3. 点击导入按钮
+
+此时页面会下载一个兼容 Cockpit 的 JSON 导出文件，默认文件名为：
+
+```text
+cockpit_codex_export.json
 ```
 
-也可以指定测活模型：
+## 配置说明
 
-```powershell
-$env:CODEX_TEST_MODEL="gpt-5.4"
-python server.py
-```
+### 页面配置项
 
-## 去重说明
+- `目标平台`
+  - `Sub2API`
+  - `CPA`
+  - `Cockpit`
+- `API 接口地址`
+  - 目标平台的管理接口地址
+- `Admin Token`
+  - 当前页面输入使用
+- `鉴权头`
+  - `Authorization: Bearer`
+  - `x-api-key`
+- `自定义导入路径`
+  - 不填就使用平台默认路径
+- `并发数`
+  - 用于本地测活和部分导入参数
+- `优先级`
+  - 仅 `Sub2API` 使用
+- `分组 ID`
+  - 仅 `Sub2API` 使用
+- `更新已存在账号`
+  - 仅 `Sub2API` 使用
+- `跳过默认分组绑定`
+  - 仅 `Sub2API` 使用
+- `过期自动暂停`
+  - 仅 `Sub2API` 使用
 
-本工具不会因为账号显示名称 `name` 相同就判定重复。
+### Admin Token 在哪里配置
 
-重复判断顺序为：
+这个项目本身不生成、不保存 Admin Token。
 
-- `chatgpt_account_id`
-- `chatgpt_user_id`
-- `user_id`
-- `email`
-- `access_token` 指纹
+在本工具里，Admin Token 的配置位置只有一个：
 
-因此多个账号都叫同一个 `name`，只要真实身份字段不同，就会被视为不同账号。
+- 页面顶部的 `Admin Token` 输入框
 
-## JSON 文件要求
+也就是说，本工具不需要额外改代码、不需要改配置文件、不需要数据库。
 
-工具会读取 `.json` 文件并尝试识别下面字段：
+目标平台自己的管理员 token 或 API key 由你已有的服务负责提供。
+
+### 保存配置会保存什么
+
+点击 `保存配置` 后，只保存以下非敏感配置：
+
+- 目标平台
+- API 地址
+- 鉴权方式
+- 自定义路径
+- 并发数
+- 优先级
+- 分组 ID
+- Sub2API 相关开关
+
+不会保存：
+
+- `Admin Token`
+
+## 支持的输入格式
+
+页面支持两类输入来源：
+
+- 本地 JSON 文件
+- 剪切板粘贴内容
+
+### 支持的粘贴内容
+
+支持下面这些格式：
+
+- 单个 JSON 对象
+- JSON 数组
+- NDJSON
+- Markdown 代码块里的 JSON
+- `session JSON`
+- `auth.json`
+- 账号导出 JSON
+- `Sub2API` 导出包
+- 单独一行 `access_token`
+- 单独一行 `refresh_token`
+
+例如下面这些都可以：
 
 ```json
-{
-  "access_token": "xxx",
-  "refresh_token": "xxx",
-  "id_token": "xxx",
-  "email": "user@example.com",
-  "account_id": "account-id",
-  "user_id": "user-id",
-  "expires_at": "2026-06-08T12:00:00Z"
-}
+{"email":"a@example.com","access_token":"token-a"}
 ```
 
-也支持部分常见变体字段：
+```json
+[
+  {"email":"a@example.com","access_token":"token-a"},
+  {"email":"b@example.com","access_token":"token-b"}
+]
+```
 
-- `accessToken`
-- `refreshToken`
-- `idToken`
+```text
+{"email":"a@example.com","access_token":"token-a"}
+{"email":"b@example.com","access_token":"token-b"}
+1//refresh-only-token
+```
+
+````text
+```json
+{"email":"a@example.com","access_token":"token-a"}
+```
+````
+
+### 支持的账号字段
+
+工具会自动识别这些字段或其常见变体：
+
+- `access_token`
+- `refresh_token`
+- `id_token`
+- `email`
+- `account_id`
+- `user_id`
+- `chatgpt_account_id`
+- `chatgpt_user_id`
+- `expires_at`
 - `tokens.access_token`
-- `tokens.accessToken`
 - `tokens.refresh_token`
-- `tokens.refreshToken`
 - `tokens.id_token`
-- `tokens.idToken`
-- `user.email`
-- `account.id`
-- `user.id`
 
-判断是否可导入的最低要求是存在 `access_token`。
+如果 token 是 JWT，工具还会尝试从 token payload 里补出：
 
-## 实际调用接口
+- `email`
+- `chatgpt_account_id`
+- `chatgpt_user_id`
 
-导入时页面通过本地代理调用 Sub2API：
+### 缺少 access_token 的处理
+
+如果一条记录只有 `refresh_token`、没有 `access_token`，它仍然会被解析出来，但会显示为：
+
+- `缺少 access token`
+
+这种记录不会进入可导入列表，也不会通过测活。
+
+## 去重规则
+
+账号去重不按显示名 `name` 判断。
+
+去重顺序是：
+
+1. `chatgpt_account_id` / `account_id`
+2. `chatgpt_user_id` / `user_id`
+3. `email`
+4. `access token` 指纹
+
+所以：
+
+- 同名账号不一定重复
+- 只要真实身份字段不同，就会被视为不同账号
+
+## 平台行为
+
+### Sub2API
+
+默认导入路径：
 
 ```text
-POST http://127.0.0.1:5177/proxy/admin/accounts/import/codex-session
+/admin/accounts/import/codex-session
 ```
 
-本地代理会转发到你的 Sub2API：
+页面会调用本地代理：
 
 ```text
-POST <API 接口地址>/admin/accounts/import/codex-session
+POST /proxy/admin/accounts/import/codex-session
 ```
 
-如果页面填写：
-
-```text
-http://127.0.0.1:8080/api/v1
-```
-
-最终请求就是：
-
-```text
-POST http://127.0.0.1:8080/api/v1/admin/accounts/import/codex-session
-```
+本地代理再转发到你填写的 Sub2API 地址。
 
 请求体格式：
 
 ```json
 {
-  "contents": ["<json file content>"],
-  "group_ids": [],
+  "contents": ["<json>", "<json>"],
+  "group_ids": [1, 2],
   "concurrency": 3,
   "priority": 50,
   "update_existing": true,
@@ -258,149 +350,247 @@ POST http://127.0.0.1:8080/api/v1/admin/accounts/import/codex-session
 }
 ```
 
-Token 发送方式二选一：
+### CPA
 
-```http
-Authorization: Bearer <Admin Token>
+默认导入路径：
+
+```text
+/v0/management/auth-files
 ```
 
-或：
+页面会调用本地代理：
 
-```http
-x-api-key: <Admin Token>
+```text
+POST /proxy-upload/v0/management/auth-files
 ```
+
+本地代理会把每个正常账号转成一个 auth JSON 文件，并以 `multipart/form-data` 上传。
+
+每个文件内容类似：
+
+```json
+{
+  "type": "codex",
+  "email": "user@example.com",
+  "access_token": "xxx",
+  "refresh_token": "xxx",
+  "id_token": "xxx",
+  "account_id": "acc-xxx",
+  "expired": "2026-06-10T00:00:00.000Z",
+  "last_refresh": "2026-06-09T10:00:00.000Z"
+}
+```
+
+### Cockpit
+
+Cockpit 当前不走远程导入接口。
+
+点击导入后，页面会把正常账号导出成兼容 JSON，并自动下载。
+
+当前导出内容基于 `Sub2API` 兼容包结构，方便后续给 Cockpit 工具链使用。
+
+## 测活说明
+
+### 默认行为
+
+测活通过本地接口：
+
+```text
+POST /health-check
+```
+
+本地服务会对选中账号的 `access_token` 发起一个轻量的 Codex 响应流请求，检查是否能正常完成。
+
+识别到这些事件会判定为成功：
+
+- `response.completed`
+- `response.done`
+- `[DONE]`
+
+只有测活成功的账号，才会进入最终导入。
+
+### 默认上游地址
+
+默认测活地址：
+
+```text
+https://chatgpt.com/backend-api/codex/responses
+```
+
+默认模型：
+
+```text
+gpt-5.4
+```
+
+### 可选环境变量
+
+如果你需要改测活地址或模型，可以在启动前设置：
+
+```powershell
+$env:CODEX_HEALTH_URL="https://chatgpt.com/backend-api/codex/responses"
+$env:CODEX_TEST_MODEL="gpt-5.4"
+python server.py
+```
+
+也可以覆盖 `User-Agent`：
+
+```powershell
+$env:CODEX_USER_AGENT="custom-user-agent"
+python server.py
+```
+
+### 常见测活失败原因
+
+- `access_token` 已过期
+- 账号被风控或不可用
+- 当前网络无法访问上游
+- 上游返回鉴权失败或限流
+- 只有 `refresh_token`，没有 `access_token`
 
 ## 本地代理说明
 
-浏览器直接请求 Sub2API 时可能遇到 CORS 跨域限制，所以本项目使用 `server.py` 同时提供两个能力：
+`server.py` 提供三类能力：
 
-- 托管 `index.html`、`styles.css`、`app.js`。
-- 接收 `/proxy/...` 请求，并转发到你填写的 Sub2API API 地址。
-- 接收 `/health-check` 请求，并对待导入账号做本机测活。
+- 托管静态页面
+- 转发 JSON 导入请求
+- 转发 multipart 上传请求
+- 执行本地测活
 
-代理只监听本机：
+对应路由：
+
+- `GET /`
+- `POST /proxy/...`
+- `POST /proxy-upload/...`
+- `POST /health-check`
+
+服务默认只监听：
 
 ```text
 127.0.0.1:5177
 ```
 
-它不会把页面暴露给局域网其他机器。
-
 ## 停止服务
 
-在运行 `python server.py` 的 PowerShell 窗口中按：
+在运行 `python server.py` 的终端里按：
 
 ```text
 Ctrl + C
 ```
 
-如果端口被占用，可以先找出占用进程：
+如果端口被占用，可以先查看占用进程：
 
 ```powershell
 netstat -ano | findstr :5177
 ```
 
-然后按 PID 结束进程：
+再结束对应 PID：
 
 ```powershell
 taskkill /PID <PID> /F
 ```
 
+## 开发与测试
+
+### 本地测试命令
+
+`health.js` 的单元测试：
+
+```powershell
+node --test .\health.test.js
+```
+
+检查前端脚本语法：
+
+```powershell
+node --check .\app.js
+```
+
+检查 Python 语法：
+
+```powershell
+python -m py_compile .\server.py
+```
+
+检查仓库里是否泄露本机绝对路径：
+
+```powershell
+rg -n "[A-Za-z]:\\\\[^\"'\\s]+" .
+```
+
+## 项目结构
+
+```text
+<project-folder>
+├── app.js
+├── health.js
+├── health.test.js
+├── index.html
+├── README.md
+├── server.py
+└── styles.css
+```
+
+各文件职责：
+
+- `index.html`
+  - 页面结构
+- `styles.css`
+  - 页面样式
+- `app.js`
+  - 页面交互、导入逻辑、粘贴解析、结果展示
+- `health.js`
+  - 平台预设、账号规范化、去重、导入 payload 构造
+- `health.test.js`
+  - 关键逻辑测试
+- `server.py`
+  - 静态服务、本地代理、测活接口
+
 ## 常见问题
 
-### 是否需要配置数据库？
+### 是否需要数据库
 
 不需要。
 
-本工具只是一个本地可视化导入页面，它不保存账号数据。账号最终保存到哪里，由你已有的 Sub2API 服务决定。
+这个项目只是本地可视化页面和代理层，不负责持久化账号。
 
-### Admin Token 在哪里配置？
+账号最终存到哪里，由目标平台自己决定。
 
-在页面的 `Admin Token` 输入框配置。
+### 为什么要启动 `server.py`
 
-项目文件里没有 Admin Token 配置项，也不建议把 Admin Token 写进代码或 README。
+因为页面不只是静态 HTML。
 
-### 为什么要启动 `server.py`？
+它还负责：
 
-直接双击打开 `index.html` 时，浏览器可能因为 CORS、文件权限或目录选择能力限制导致请求失败。`server.py` 提供本地网页服务和请求转发代理，是推荐启动方式。
+- 本地托管页面
+- 代理导入请求
+- 执行测活
+- 处理浏览器 CORS 限制
 
-### 选择目录按钮不可用怎么办？
+直接双击打开 `index.html` 不属于推荐用法。
 
-请使用 Chrome 或 Edge，并通过 `http://127.0.0.1:5177` 打开页面。
+### 剪切板读取失败怎么办
 
-如果浏览器仍不支持目录选择，请点击 `选择多个 JSON 文件`，手动选中账号 JSON 目录里的文件。
+浏览器可能会要求授权读取剪切板。
 
-### 测活正常数量为 0 怎么办？
+如果浏览器拦截，可以直接手动粘贴到页面文本框，然后点击 `解析粘贴内容`。
 
-检查三项：
+### Cockpit 为什么不是直接导入
 
-- 账号 JSON 是否真的包含有效 `access_token`。
-- 当前机器是否能访问 OpenAI/Codex 上游。
-- 账号是否已经过期、被风控或被上游拒绝。
+当前实现按现有兼容导出格式处理，更稳，也更容易和已有工具链对接。
 
-### 提示 Token 无效怎么办？
+如果后续确认 Cockpit 有稳定远程导入 API，可以再扩展为直传模式。
 
-检查三项：
+### 同名账号为什么没有被判定为重复
 
-- Admin Token 是否复制完整。
-- `Token 发送方式` 是否和 Sub2API 实际鉴权方式一致。
-- 当前 Token 是否过期或是否具备管理员权限。
+因为重复判断不看 `name`，只看真实身份字段。
 
-### 提示接口不存在怎么办？
-
-确认 Sub2API 服务是否包含下面接口：
-
-```text
-POST /api/v1/admin/accounts/import/codex-session
-```
-
-如果你的 Sub2API 版本没有这个接口，需要先更新或合并对应的 Sub2API 后端实现。
-
-### 提示连接失败怎么办？
-
-检查三项：
-
-- Sub2API 服务是否已经启动。
-- `API 接口地址` 是否能从本机访问。
-- 防火墙或反向代理是否阻止了请求。
-
-可以在 PowerShell 里测试：
-
-```powershell
-curl http://127.0.0.1:8080/api/v1
-```
-
-请把地址替换成你自己的 Sub2API 地址。
+这是刻意设计，用来避免“名称一样但实际不是同一个账号”的误判。
 
 ## 安全说明
 
-- 本工具在浏览器本地读取 JSON 文件，不会主动上传到第三方服务。
-- 点击导入后，选中的 JSON 内容会发送到你填写的 Sub2API 服务。
-- Admin Token 不会保存到 localStorage。
-- 不建议把本工具部署到公网。
-- 不建议把 Admin Token 写入代码、README、脚本或 Git 仓库。
-
-## 可选部署方式
-
-本项目推荐在本机运行，适合单人本地管理账号。
-
-如果你确实要放到服务器上运行，需要自行处理：
-
-- HTTPS。
-- 访问控制。
-- Admin Token 泄露风险。
-- Sub2API 地址白名单。
-- 反向代理超时配置。
-
-对于最简用法，不需要额外部署，只运行：
-
-```powershell
-cd <project-folder>
-python server.py
-```
-
-然后访问：
-
-```text
-http://127.0.0.1:5177
-```
+- 本工具不保存 Admin Token
+- 账号 JSON 只在本地页面和你指定的平台之间流转
+- 不建议把这个工具直接暴露到公网
+- 不建议把 Admin Token 写进源码、脚本或仓库
+- 如果用于多人环境，建议自行增加访问控制和 HTTPS

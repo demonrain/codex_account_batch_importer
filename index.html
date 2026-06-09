@@ -3,22 +3,22 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Sub2API 账号批量管理工具</title>
+  <title>Account Batch Importer</title>
   <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
   <div id="app">
     <header class="hero">
       <div class="hero__content">
-        <p class="eyebrow">Sub2API Account Tool</p>
-        <h1>账号批量管理</h1>
+        <p class="eyebrow">Codex Account Console</p>
+        <h1>批量账号导入与测活</h1>
         <p class="hero__text">
-          选择本机账号 JSON 目录，本地解析预览后，直接调用 Sub2API 管理接口批量导入 OpenAI OAuth 账号。
+          支持 Sub2API、CPA、Cockpit 三种目标平台。可以读取目录里的 JSON，也可以直接粘贴剪切板里的 JSON、session、token 文本，自动纠正后进入测活、去重和导入流程。
         </p>
       </div>
       <div class="hero__panel">
         <div class="mini-stat">
-          <span>文件</span>
+          <span>总文件</span>
           <strong id="statTotal">0</strong>
         </div>
         <div class="mini-stat">
@@ -26,7 +26,7 @@
           <strong id="statImportable">0</strong>
         </div>
         <div class="mini-stat">
-          <span>正常</span>
+          <span>测活正常</span>
           <strong id="statHealthy">0</strong>
         </div>
         <div class="mini-stat">
@@ -41,38 +41,50 @@
         <div class="section-title">
           <div>
             <p class="eyebrow">Step 1</p>
-            <h2>连接 Sub2API</h2>
+            <h2>连接目标平台</h2>
           </div>
           <button id="saveConfigBtn" class="button button--ghost" type="button">保存配置</button>
         </div>
 
-        <div class="form-grid">
+        <div class="form-grid form-grid--wide">
+          <label>
+            <span>目标平台</span>
+            <select id="platformInput">
+              <option value="sub2api">Sub2API</option>
+              <option value="cpa">CPA</option>
+              <option value="cockpit">Cockpit</option>
+            </select>
+          </label>
           <label>
             <span>API 接口地址</span>
-            <input id="apiBaseInput" type="url" placeholder="http://127.0.0.1:8080/api/v1">
+            <input id="apiBaseInput" type="url" placeholder="例如 http://127.0.0.1:8080/api/v1">
           </label>
           <label>
             <span>Admin Token</span>
-            <input id="adminTokenInput" type="password" placeholder="粘贴 JWT 或 Admin API Key">
+            <input id="adminTokenInput" type="password" placeholder="Bearer Token 或 API Key">
           </label>
           <label>
-            <span>Token 发送方式</span>
+            <span>鉴权头</span>
             <select id="authModeInput">
               <option value="bearer">Authorization: Bearer</option>
               <option value="apikey">x-api-key</option>
             </select>
           </label>
           <label>
-            <span>账号并发</span>
-            <input id="concurrencyInput" type="number" min="0" value="3">
+            <span>自定义导入路径</span>
+            <input id="customPathInput" type="text" placeholder="留空使用平台默认路径">
           </label>
           <label>
-            <span>账号优先级</span>
+            <span>并发数</span>
+            <input id="concurrencyInput" type="number" min="1" value="3">
+          </label>
+          <label>
+            <span>优先级</span>
             <input id="priorityInput" type="number" min="0" value="50">
           </label>
           <label>
             <span>分组 ID</span>
-            <input id="groupIdsInput" type="text" placeholder="可选，例如 1,2,3">
+            <input id="groupIdsInput" type="text" placeholder="仅 Sub2API 使用，例如 1,2,3">
           </label>
         </div>
 
@@ -90,6 +102,10 @@
             <span>过期自动暂停</span>
           </label>
         </div>
+
+        <p class="hint" id="platformHint">
+          Sub2API 直接调用批量导入接口；CPA 通过管理端上传 auth 文件；Cockpit 生成兼容 JSON，可直接下载或复制。
+        </p>
       </section>
 
       <section class="workspace">
@@ -97,27 +113,32 @@
           <div class="section-title">
             <div>
               <p class="eyebrow">Step 2</p>
-              <h2>读取账号文件</h2>
+              <h2>读取账号数据</h2>
             </div>
           </div>
 
           <div class="button-stack">
-            <button id="pickDirectoryBtn" class="button button--primary" type="button">
-              选择 accounts 目录
-            </button>
+            <button id="pickDirectoryBtn" class="button button--primary" type="button">选择 JSON 目录</button>
             <label class="button button--secondary file-button">
               选择多个 JSON 文件
               <input id="fileInput" type="file" accept=".json,application/json" multiple>
             </label>
           </div>
 
-          <p class="hint">
-            Chrome / Edge 支持直接选择目录。其他浏览器可用“选择多个 JSON 文件”。
-          </p>
+          <div class="paste-panel">
+            <label class="search-box">
+              <span>粘贴 JSON / Token</span>
+              <textarea id="pasteInput" rows="9" placeholder='支持 JSON、NDJSON、Sub2API 导出、session JSON、access_token、refresh_token、```json 代码块```'></textarea>
+            </label>
+            <div class="quick-actions quick-actions--stack">
+              <button id="pasteFromClipboardBtn" class="button button--ghost" type="button">从剪切板读取</button>
+              <button id="parsePasteBtn" class="button button--secondary" type="button">解析粘贴内容</button>
+            </div>
+          </div>
 
           <div class="status-box">
             <span>当前来源</span>
-            <strong id="sourceLabel">尚未选择</strong>
+            <strong id="sourceLabel">尚未读取账号数据</strong>
           </div>
 
           <div class="quick-actions">
@@ -133,18 +154,14 @@
 
         <section class="card table-card">
           <div class="section-title section-title--table">
-          <div>
-            <p class="eyebrow">Step 3</p>
-            <h2>预览并导入</h2>
-          </div>
-          <div class="table-actions">
-            <button id="healthCheckBtn" class="button button--secondary" type="button" disabled>
-              测活选中账号
-            </button>
-            <button id="importBtn" class="button button--danger" type="button" disabled>
-              导入正常账号
-            </button>
-          </div>
+            <div>
+              <p class="eyebrow">Step 3</p>
+              <h2>测活、去重与导入</h2>
+            </div>
+            <div class="table-actions">
+              <button id="healthCheckBtn" class="button button--secondary" type="button" disabled>测活选中账号</button>
+              <button id="importBtn" class="button button--danger" type="button" disabled>导入正常账号</button>
+            </div>
           </div>
 
           <div class="table-wrap">
@@ -152,9 +169,9 @@
               <thead>
                 <tr>
                   <th></th>
-                  <th>文件</th>
+                  <th>来源</th>
                   <th>账号信息</th>
-                  <th>身份</th>
+                  <th>真实身份</th>
                   <th>Token</th>
                   <th>过期时间</th>
                   <th>状态</th>
@@ -163,7 +180,7 @@
               </thead>
               <tbody id="fileTableBody">
                 <tr>
-                  <td colspan="8" class="empty">请选择 JSON 文件</td>
+                  <td colspan="8" class="empty">请选择 JSON 文件或粘贴账号内容</td>
                 </tr>
               </tbody>
             </table>
@@ -175,7 +192,7 @@
         <div class="section-title">
           <div>
             <p class="eyebrow">Result</p>
-            <h2>导入结果</h2>
+            <h2>执行结果</h2>
           </div>
           <button id="clearResultBtn" class="button button--ghost" type="button">关闭结果</button>
         </div>
